@@ -3,18 +3,15 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-smtp_server = "192.168.27.25"
-smtp_port = 25
-opml_file = "file:///Users/jheese/devel/yt-rss/subscribed.xml"
-stored_links_file = "/Users/jheese/devel/yt-rss/yt-links.json"
-email = "yt-rss@jonheese.com"
-api_key = "AIzaSyA9G1H3eqpUSZJI5Fgs48ySlB1b_omNNPc"
+
+with open("config.json", "r") as fp:
+    config = json.load(fp)
 yt_api_url = "https://www.googleapis.com/youtube/v3/videos?id=%s&part=contentDetails&key=%s"
 
-with open(stored_links_file, "r") as fp:
+with open(config["stored_links_file"], "r") as fp:
     stored_links = json.load(fp)
 
-outline = opml.parse(opml_file)[0]
+outline = opml.parse(config["opml_file"])[0]
 august_13th = datetime.fromisoformat("2020-08-13T00:00:00+00:00")
 messages = []
 
@@ -25,7 +22,7 @@ for item in outline:
     for entry in entries:
         published_date = datetime.fromisoformat(entry.published)
         duration = str(aniso8601.parse_duration(json.loads(requests.get(yt_api_url % (entry.yt_videoid,
-            api_key)).text)['items'][0]['contentDetails']['duration']))
+            config["api_key"])).text)['items'][0]['contentDetails']['duration']))
         if entry.link not in stored_links.keys() and published_date > august_13th:
             stored_links[entry.link] = {
                     "title": entry.title,
@@ -42,8 +39,8 @@ for item in outline:
                 image_html = "NO THUMBNAIL"
             message = MIMEMultipart("alternative")
             message["Subject"] = f"{channel_name} just uploaded a video"
-            message["From"] = email
-            message["To"] = email
+            message["From"] = config["email"]
+            message["To"] = config["email"]
             text = f"""\
                     {entry.title}
                     {entry.link} ({duration})"""
@@ -62,10 +59,10 @@ for item in outline:
             message.attach(part2)
             messages.append(message)
 
-with smtplib.SMTP(smtp_server, smtp_port) as server:
+with smtplib.SMTP(config["smtp_server"], config["smtp_port"]) as server:
     server.ehlo()
     for message in messages:
-        server.sendmail(email, email, message.as_string())
+        server.sendmail(config["email"], config["email"], message.as_string())
 
-with open(stored_links_file, "w") as fp:
+with open(config["stored_links_file"], "w") as fp:
     json.dump(stored_links, fp, indent=2)
