@@ -53,7 +53,7 @@ for item in outline:
                 image_html = "NO THUMBNAIL"
             message = MIMEMultipart("alternative")
             message["Subject"] = f"{item.title} just uploaded a video"
-            message["From"] = 'YouTube <{config["email"]}>'
+            message["From"] = f'YouTube <{config["email"]}>'
             message["To"] = config["email"]
             text = f"""\
                     {entry.title}
