@@ -2,7 +2,7 @@
 	"smtp_server": "192.168.27.25",
 	"smtp_port": 25,
 	"opml_file": "file:///Users/jheese/devel/yt-rss/subscribed.xml",
-	"stored_links_file": "/Users/jheese/devel/yt-rss/yt-links.json",
+	"datastore_file": "/Users/jheese/devel/yt-rss/datastore.json",
 	"email": "your@email.com",
 	"api_key": "YOUR_YOUTUBE_API_TOKEN"
 }
