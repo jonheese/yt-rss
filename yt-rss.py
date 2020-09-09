@@ -21,18 +21,16 @@ for item in outline:
     entries = feedparser.parse(item.xmlUrl).entries
     # Loop through videos in this channel's feed
     for entry in entries:
-        new = False
         if "published" in entry.keys():
             published_date = datetime.fromisoformat(entry.published)
         elif "updated" in entry.keys():
             published_date = datetime.fromisoformat(entry.updated)
         else:
-            # Couldn't find a published/updated date, just assume it was
-            # released now
-            new = True
-            published_date = datetime.now()
+            # Couldn't find a published/updated date, skip it and hope it's got
+            # this data next time
+            continue
         # Skip videos we already know about or are older than 8/13/2020
-        if entry.link not in datastore.keys() and (new or published_date > august_13th):
+        if entry.link not in datastore.keys() and published_date > august_13th:
             try:
                 duration_data = json.loads(requests.get(yt_api_url % (entry.yt_videoid, config["api_key"])).text)
                 if "items" in duration_data.keys():
