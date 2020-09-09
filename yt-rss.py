@@ -20,13 +20,29 @@ for item in outline:
     channel_name = item.title
     entries = feedparser.parse(url).entries
     for entry in entries:
-        published_date = datetime.fromisoformat(entry.published)
-        duration = str(aniso8601.parse_duration(json.loads(requests.get(yt_api_url % (entry.yt_videoid,
-            config["api_key"])).text)['items'][0]['contentDetails']['duration']))
-        if entry.link not in stored_links.keys() and published_date > august_13th:
+        new = False
+        if "published" in entry.keys():
+            published_date = datetime.fromisoformat(entry.published)
+        elif "updated" in entry.keys():
+            published_date = datetime.fromisoformat(entry.updated)
+        else:
+            print(entry.keys())
+            new = True
+            published_date = datetime.now()
+        if entry.link not in stored_links.keys() and (new or published_date > august_13th):
+            try:
+                duration_data = json.loads(requests.get(yt_api_url % (entry.yt_videoid, config["api_key"])).text)
+                if "items" in duration_data.keys():
+                    duration = str(aniso8601.parse_duration(duration_data['items'][0]['contentDetails']['duration']))
+                else:
+                    print(json.dumps(duration_data, indent=2))
+                    duration = "Unknown Duration"
+            except Exception as e:
+                duration = "Unknown Duration"
+                print(json.dumps(duration_data, indent=2))
             stored_links[entry.link] = {
                     "title": entry.title,
-                    "date": entry.published
+                    "date": datetime.isoformat(published_date)
                     }
             print(f"Found new video for channel {entry.author}: {entry.title}")
             thumbnail_data = entry.media_thumbnail
