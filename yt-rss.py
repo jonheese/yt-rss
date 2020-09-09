@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 
 
 yt_api_url = "https://www.googleapis.com/youtube/v3/videos?id=%s&part=contentDetails&key=%s"
-config_file = os.path.join(os.path.dirname(os.path.realpath(__file__),
+config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)),
     "config.json")
 with open(config_file, "r") as fp:
     config = json.load(fp)
