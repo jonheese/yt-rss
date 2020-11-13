@@ -1,4 +1,5 @@
 config.json
 subscribed.xml
 datastore.json
-yt-links.json
+*.swp
+creds.dat

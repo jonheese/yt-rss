@@ -1,4 +1,6 @@
-feedparser
-opml
-aniso8601
-requests
+aniso8601==8.0.0
+feedparser==5.2.1
+google-api-python-client==1.12.5
+httplib2==0.18.1
+oauth2client==4.1.3
+requests==2.24.0
