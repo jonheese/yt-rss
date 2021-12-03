@@ -81,6 +81,7 @@ def main(argv):
         entries = feedparser.parse(url).entries
         # Loop through videos in this channel's feed
         for entry in entries:
+            livestream = entry.media_statistics["views"] == "0"
             if "published" in entry.keys():
                 published_date = datetime.fromisoformat(entry.published)
             elif "updated" in entry.keys():
@@ -112,7 +113,10 @@ def main(argv):
                     if not image_html:
                         image_html = "NO THUMBNAIL"
                 message = MIMEMultipart("alternative")
-                message["Subject"] = f"{item['snippet']['title']} just uploaded a video"
+                if livestream:
+                    message["Subject"] = f"{item['snippet']['title']} just announced a LIVE STREAM"
+                else:
+                    message["Subject"] = f"{item['snippet']['title']} just uploaded a video"
                 message["From"] = f'YouTube <{config["email"]}>'
                 message["To"] = config["email"]
                 text = f"""\
