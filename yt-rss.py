@@ -81,7 +81,7 @@ def main(argv):
         entries = feedparser.parse(url).entries
         # Loop through videos in this channel's feed
         for entry in entries:
-            livestream = entry.media_statistics["views"] == "0"
+            livestream = int(entry.media_statistics["views"]) < 2
             if "published" in entry.keys():
                 published_date = datetime.fromisoformat(entry.published)
             elif "updated" in entry.keys():
@@ -100,6 +100,8 @@ def main(argv):
                         duration = "Unknown Duration"
                 except Exception as e:
                     duration = "Unknown Duration"
+                if duration == "0:00:00":
+                    livestream = True
                 datastore[entry.link] = {
                     "title": entry.title,
                     "date": datetime.isoformat(published_date)
