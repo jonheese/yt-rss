@@ -10,7 +10,7 @@ import smtplib
 import sys
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime
+from datetime import datetime, timezone
 from googleapiclient import discovery
 from oauth2client import file, tools
 
@@ -70,7 +70,12 @@ def main(argv):
             previous_response=response,
         )
 
-    august_13th = datetime.fromisoformat("2020-08-13T00:00:00+00:00")
+    #date_threshold = datetime.fromisoformat("2020-08-13T00:00:00+00:00")
+    today = datetime.today()
+    if today.month < 7:
+        date_threshold = datetime(today.year - 1, today.month + 6, today.day).replace(tzinfo=timezone.utc)
+    else:
+        date_threshold = datetime(today.year, today.month - 6, today.day).replace(tzinfo=timezone.utc)
     messages = []
     found = False
 
@@ -91,7 +96,7 @@ def main(argv):
                 # this data next time
                 continue
             # Skip videos we already know about or are older than 8/13/2020
-            if entry.link not in datastore.keys() and published_date > august_13th:
+            if entry.link not in datastore.keys() and published_date > date_threshold:
                 try:
                     duration_data = json.loads(requests.get(yt_api_url % (entry.yt_videoid, config["api_key"])).text)
                     if "items" in duration_data.keys():
