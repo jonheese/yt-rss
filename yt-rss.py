@@ -20,7 +20,6 @@ count = 0
 
 def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_results=50, params=None,):
     global count
-    count += 1
     results = []
 
     api_endpoint = getattr(youtube, endpoint_name)
@@ -28,6 +27,7 @@ def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_resul
     params["maxResults"] = max_results
     request = api_endpoint().list(**params)
     while request is not None:
+        count += 1
         response = request.execute()
         results.extend(response.get("items"))
         request = api_endpoint().list_next(
