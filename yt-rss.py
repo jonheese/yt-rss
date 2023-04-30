@@ -37,6 +37,11 @@ def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_resul
     return results
 
 
+def log(message):
+    now = datetime.now()
+    print(f'{now} - {message}')
+
+
 def main(argv):
     SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
@@ -130,7 +135,7 @@ def main(argv):
                 livestream = "liveStreamingDetails" in streaming_details and \
                              "actualStartTime" in streaming_details["liveStreamingDetails"]
             except Exception:
-                print(f"Unable to find streaming details for {channel['snippet']['title']}: {snippet['title']}")
+                log(f"Unable to find streaming details for {channel['snippet']['title']}: {snippet['title']}")
                 livestream = False
 
             try:
@@ -148,7 +153,7 @@ def main(argv):
                 "title": snippet["title"],
                 "date": datetime.isoformat(published_date),
             }
-            print(f"Found new video for channel {channel['snippet']['title']}: {snippet['title']}")
+            log(f"Found new video for channel {channel['snippet']['title']}: {snippet['title']}")
             image_html = ""
             thumbnail = snippet.get("thumbnails").get("high")
             if "url" in thumbnail:
@@ -197,12 +202,12 @@ def main(argv):
 
     if found or pruned:
         if pruned:
-            print("Performing datastore file pruning")
+            log("Performing datastore file pruning")
         with open(config["datastore_file"], "w") as fp:
             json.dump(datastore, fp, indent=2)
 
     global count
-    print(f"I made a total of {count} API calls")
+    log(f"I made a total of {count} API calls")
 
 
 if __name__ == '__main__':
