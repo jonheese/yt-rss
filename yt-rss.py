@@ -190,6 +190,7 @@ def main(argv):
         with smtplib.SMTP(config["smtp_server"], config["smtp_port"]) as server:
             server.ehlo()
             for message in messages:
+                log(f'Sending mail about message: {message}')
                 server.sendmail(config["email"], config["email"], message.as_string())
 
     pruned = False
