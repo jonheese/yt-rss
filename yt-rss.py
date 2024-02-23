@@ -150,6 +150,7 @@ def main(argv):
                 duration = "Unknown Duration"
 
             datastore[video_url] = {
+                "channel": channel['snippet']['title'],
                 "title": snippet["title"],
                 "date": datetime.isoformat(published_date),
             }
