@@ -195,7 +195,7 @@ def main(argv):
                 server.sendmail(config["email"], config["email"], message.as_string())
 
     pruned = False
-    date_threshold = (datetime.today() - relativedelta(months=6, days=1)).replace(tzinfo=timezone.utc)
+    date_threshold = (datetime.today() - relativedelta(months=7)).replace(tzinfo=timezone.utc)
     for key, item in datastore.copy().items():
         timestamp = datetime.fromisoformat(item["date"]).replace(tzinfo=timezone.utc)
         if timestamp < date_threshold:
