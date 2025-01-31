@@ -16,9 +16,10 @@ from googleapiclient import discovery
 from oauth2client import file, tools
 
 count = 0
+NUM_MONTHS_BACKLOG = 1
 
 
-def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_results=50, params=None,):
+def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_results=50, params=None, get_all_results=True,):
     global count
     results = []
 
@@ -34,6 +35,8 @@ def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_resul
             previous_request=request,
             previous_response=response,
         )
+        if not get_all_results:
+            break
     return results
 
 
@@ -87,8 +90,9 @@ def main(argv):
         endpoint_name="subscriptions",
         params={"mine": True},
     )
+    # log(f'Got {len(channels)} channels')
 
-    date_threshold = (datetime.today() - relativedelta(months=6)).replace(tzinfo=timezone.utc)
+    date_threshold = (datetime.today() - relativedelta(months=NUM_MONTHS_BACKLOG)).replace(tzinfo=timezone.utc)
     messages = []
     found = False
     cancel = False
@@ -106,7 +110,10 @@ def main(argv):
                 params={
                     "playlistId": uploads_playlist_id,
                 },
+                max_results=25,
+                get_all_results=False,
             )
+            # log(f'Got {len(videos)} videos for channel {channel["snippet"]["title"]}')
         except Exception:
             #traceback.print_exc()
             continue
@@ -115,14 +122,16 @@ def main(argv):
         for video in videos:
             snippet = video.get("snippet")
             published_date = datetime.strptime(snippet.get("publishedAt"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            # log(f' - video {snippet["title"]} is from {published_date}')
             video_id = snippet.get("resourceId").get("videoId")
 
             video_url = f'https://www.youtube.com/watch?v={video_id}'
 
-            # Skip videos we already know about or are older than 8/13/2020
+            # Skip videos we already know about or are older than the date threshold we set above
             if video_url in datastore.keys() or published_date < date_threshold:
                 continue
 
+            livestream = False
             try:
                 streaming_details = do_list_api_call(
                     youtube=youtube,
@@ -136,7 +145,6 @@ def main(argv):
                              "actualStartTime" in streaming_details["liveStreamingDetails"]
             except Exception:
                 log(f"Unable to find streaming details for {channel['snippet']['title']}: {snippet['title']}")
-                livestream = False
 
             try:
                 duration_data = do_list_api_call(
@@ -157,7 +165,7 @@ def main(argv):
             log(f"Found new video for channel {channel['snippet']['title']}: {snippet['title']}")
             image_html = ""
             thumbnail = snippet.get("thumbnails").get("high")
-            if "url" in thumbnail:
+            if thumbnail is not None and "url" in thumbnail:
                 image_html += f"""<p><img src="{thumbnail['url']}"
                 width="{thumbnail['width']} height="{thumbnail['height']}"
                 /></p>"""
@@ -195,7 +203,7 @@ def main(argv):
                 server.sendmail(config["email"], config["email"], message.as_string())
 
     pruned = False
-    date_threshold = (datetime.today() - relativedelta(months=7)).replace(tzinfo=timezone.utc)
+    date_threshold = (datetime.today() - relativedelta(months=NUM_MONTHS_BACKLOG+1)).replace(tzinfo=timezone.utc)
     for key, item in datastore.copy().items():
         timestamp = datetime.fromisoformat(item["date"]).replace(tzinfo=timezone.utc)
         if timestamp < date_threshold:
