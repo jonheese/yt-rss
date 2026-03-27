@@ -1,10 +1,18 @@
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module="google",
+)
+
 import argparse
 import json
 import logging
 import os
 import sys
 import time
-import warnings
+
 from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from wsgiref.simple_server import make_server
@@ -20,12 +28,6 @@ from google.auth.transport.requests import Request
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-
-warnings.filterwarnings(
-    "ignore",
-    category=FutureWarning,
-    module="google",
-)
 
 # ===================== CONFIG =====================
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
