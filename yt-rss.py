@@ -1,224 +1,252 @@
-import aniso8601
 import argparse
-import httplib2
 import json
-import oauth2client
+import logging
 import os
-import smtplib
 import sys
 import time
-import traceback
+import warnings
+from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
+from wsgiref.simple_server import make_server
+import urllib.parse
+
+import aniso8601
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google.auth.transport.requests import Request
+
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import datetime, timezone
-from googleapiclient import discovery
-from oauth2client import file, tools
 
-count = 0
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module="google",
+)
+
+# ===================== CONFIG =====================
+SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 NUM_MONTHS_BACKLOG = 1
+MAX_RETRIES = 3
+TOKEN_FILE = "token.json"
+API_CALL_COUNT = 0
 
+# ===================== LOGGING =====================
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
 
-def do_list_api_call(youtube=None, endpoint_name=None, part="snippet", max_results=50, params=None, get_all_results=True,):
-    global count
+logger = logging.getLogger(__name__)
+
+# ===================== AUTH =====================
+def get_credentials(config):
+    creds = None
+
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            logger.info("Refreshing credentials")
+            creds.refresh(Request())
+        else:
+            logger.info("Running manual loopback OAuth flow (port 8081)")
+
+            flow = InstalledAppFlow.from_client_config(
+                {
+                    "web": {
+                        "client_id": config["client_id"],
+                        "client_secret": config["client_secret"],
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                    }
+                },
+                SCOPES,
+            )
+
+            # Required for web client
+            flow.redirect_uri = "http://localhost:8081/"
+
+            # IMPORTANT: do NOT include access_type here
+            auth_url, _ = flow.authorization_url(prompt="consent")
+
+            print("\nOpen this URL in your browser:\n")
+            print(auth_url)
+            print("\nWaiting for authorization...\n")
+
+            code_holder = {}
+
+            def app(environ, start_response):
+                query = urllib.parse.parse_qs(environ.get("QUERY_STRING", ""))
+                if "code" in query:
+                    code_holder["code"] = query["code"][0]
+                    start_response("200 OK", [("Content-Type", "text/plain")])
+                    return [b"Authorization successful. You can close this window."]
+                start_response("400 Bad Request", [])
+                return [b"Missing authorization code"]
+
+            server = make_server("0.0.0.0", 8081, app)
+
+            while "code" not in code_holder:
+                server.handle_request()
+
+            flow.fetch_token(code=code_holder["code"])
+            creds = flow.credentials
+
+        with open(TOKEN_FILE, "w") as token:
+            token.write(creds.to_json())
+
+    return creds
+
+# ===================== API HELPERS =====================
+def execute_request(request):
+    global API_CALL_COUNT
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            API_CALL_COUNT += 1
+            return request.execute()
+        except HttpError as e:
+            logger.warning(f"API error (attempt {attempt+1}): {e}")
+            time.sleep(2 ** attempt)
+    raise RuntimeError("Max retries exceeded")
+
+def paginated_call(service_method, **kwargs):
     results = []
+    request = service_method.list(**kwargs)
 
-    api_endpoint = getattr(youtube, endpoint_name)
-    params["part"] = part
-    params["maxResults"] = max_results
-    request = api_endpoint().list(**params)
     while request is not None:
-        count += 1
-        response = request.execute()
-        results.extend(response.get("items"))
-        request = api_endpoint().list_next(
-            previous_request=request,
-            previous_response=response,
-        )
-        if not get_all_results:
-            break
+        response = execute_request(request)
+        results.extend(response.get("items", []))
+        request = service_method.list_next(request, response)
+
     return results
 
+# ===================== MAIN =====================
+def main():
+    setup_logging()
 
-def log(message):
-    now = datetime.now()
-    print(f'{now} - {message}')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.json")
+    args = parser.parse_args()
 
+    with open(args.config) as f:
+        config = json.load(f)
 
-def main(argv):
-    SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
-    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-    api_service_name = "youtube"
-    api_version = "v3"
+    with open(config["datastore_file"]) as f:
+        datastore = json.load(f)
 
-    parser = argparse.ArgumentParser(
-        description="yt-rss args",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        parents=[tools.argparser]
-    )
-    flags = parser.parse_args(argv[1:])
+    creds = get_credentials(config)
+    youtube = build("youtube", "v3", credentials=creds, cache_discovery=False)
 
-    storage = file.Storage('creds.dat')
-    credentials = storage.get()
+    logger.info("Fetching subscriptions")
+    channels = paginated_call(youtube.subscriptions(), part="snippet", mine=True)
 
-    config_file = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-        "config.json")
-    with open(config_file, "r") as fp:
-        config = json.load(fp)
-    with open(config["datastore_file"], "r") as fp:
-        datastore = json.load(fp)
+    date_threshold = datetime.now(timezone.utc) - relativedelta(months=NUM_MONTHS_BACKLOG)
+    new_messages = []
 
-    if credentials is None or credentials.invalid:
-        flow = oauth2client.client.OAuth2WebServerFlow(
-            client_id=config.get('client_id'),
-            client_secret=config.get('client_secret'),
-            scope=SCOPE,
-            user_agent="yt-rss",
-            oauth_displayname="yt-rss",
-        )
-        credentials = tools.run_flow(flow, storage, flags)
-    http = httplib2.Http()
-    http = credentials.authorize(http)
-
-
-    youtube = discovery.build(
-        api_service_name, api_version, credentials=credentials
-    )
-
-    channels = do_list_api_call(
-        youtube=youtube,
-        endpoint_name="subscriptions",
-        params={"mine": True},
-    )
-    # log(f'Got {len(channels)} channels')
-
-    date_threshold = (datetime.today() - relativedelta(months=NUM_MONTHS_BACKLOG)).replace(tzinfo=timezone.utc)
-    messages = []
-    found = False
-    cancel = False
-
-    # Loop through subscribed channels
     for channel in channels:
-        if cancel:
-            break
-        channel_id = channel.get("snippet").get("resourceId").get("channelId")
-        uploads_playlist_id = channel_id.replace("UC", "UU", 1)
-        try:
-            videos = do_list_api_call(
-                youtube=youtube,
-                endpoint_name="playlistItems",
-                params={
-                    "playlistId": uploads_playlist_id,
-                },
-                max_results=25,
-                get_all_results=False,
-            )
-            # log(f'Got {len(videos)} videos for channel {channel["snippet"]["title"]}')
-        except Exception:
-            #traceback.print_exc()
+        snippet = channel.get("snippet", {})
+        channel_title = snippet.get("title")
+        channel_id = snippet.get("resourceId", {}).get("channelId")
+
+        if not channel_id:
             continue
 
-        # Loop through videos in this channel's feed
+        uploads_playlist_id = channel_id.replace("UC", "UU", 1)
+        logger.info(f"Checking channel: {channel_title}")
+
+        try:
+            response = execute_request(
+                youtube.playlistItems().list(
+                    part="snippet",
+                    playlistId=uploads_playlist_id,
+                    maxResults=25,
+                )
+            )
+            videos = response.get('items', [])
+        except Exception as e:
+            logger.error(f"Failed fetching videos for {channel_title}: {e}")
+            continue
+
         for video in videos:
-            snippet = video.get("snippet")
-            published_date = datetime.strptime(snippet.get("publishedAt"), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-            # log(f' - video {snippet["title"]} is from {published_date}')
-            video_id = snippet.get("resourceId").get("videoId")
+            v_snippet = video.get("snippet", {})
+            video_id = v_snippet.get("resourceId", {}).get("videoId")
 
-            video_url = f'https://www.youtube.com/watch?v={video_id}'
-
-            # Skip videos we already know about or are older than the date threshold we set above
-            if video_url in datastore.keys() or published_date < date_threshold:
+            if not video_id:
                 continue
 
-            livestream = False
-            try:
-                streaming_details = do_list_api_call(
-                    youtube=youtube,
-                    endpoint_name="videos",
-                    part="liveStreamingDetails",
-                    params={
-                        "id": video_id
-                    },
-                )[0]
-                livestream = "liveStreamingDetails" in streaming_details and \
-                             "actualStartTime" in streaming_details["liveStreamingDetails"]
-            except Exception:
-                log(f"Unable to find streaming details for {channel['snippet']['title']}: {snippet['title']}")
+            published_str = v_snippet.get("publishedAt")
+            published_date = datetime.strptime(
+                published_str, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=timezone.utc)
+
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            if video_url in datastore or published_date < date_threshold:
+                continue
+
+            logger.info(f"New video: {channel_title} - {v_snippet.get('title')}")
 
             try:
-                duration_data = do_list_api_call(
-                    youtube=youtube,
-                    endpoint_name="videos",
-                    part="contentDetails",
-                    params={"id": video_id},
+                details = execute_request(
+                    youtube.videos().list(
+                        part="contentDetails,liveStreamingDetails",
+                        id=video_id,
+                    )
                 )
-                duration = str(aniso8601.parse_duration(duration_data[0]['contentDetails']['duration']))
+                item = details["items"][0]
+
+                duration = str(aniso8601.parse_duration(item["contentDetails"]["duration"]))
+                livestream = (
+                    "liveStreamingDetails" in item and
+                    "actualStartTime" in item["liveStreamingDetails"]
+                )
             except Exception as e:
-                duration = "Unknown Duration"
+                logger.warning(f"Failed video details: {video_id} ({e})")
+                duration = "Unknown"
+                livestream = False
 
             datastore[video_url] = {
-                "channel": channel['snippet']['title'],
-                "title": snippet["title"],
-                "date": datetime.isoformat(published_date),
+                "channel": channel_title,
+                "title": v_snippet.get("title"),
+                "date": published_date.isoformat(),
             }
-            log(f"Found new video for channel {channel['snippet']['title']}: {snippet['title']}")
-            image_html = ""
-            thumbnail = snippet.get("thumbnails").get("high")
-            if thumbnail is not None and "url" in thumbnail:
-                image_html += f"""<p><img src="{thumbnail['url']}"
-                width="{thumbnail['width']} height="{thumbnail['height']}"
-                /></p>"""
-            else:
-                image_html = "NO THUMBNAIL"
-            message = MIMEMultipart("alternative")
-            if livestream:
-                message["Subject"] = f"{channel['snippet']['title']} just announced a LIVE STREAM"
-            else:
-                message["Subject"] = f"{channel['snippet']['title']} just uploaded a video"
-            message["From"] = f'YouTube <{config["email"]}>'
-            message["To"] = config["email"]
-            text = f"""\
-                {snippet['title']}
-                {video_url} ({duration})"""
-            html = f"""\
-                <html>
-                <body>
-                    <a href="{video_url}">{image_html}</a>
-                    <p><a href="{video_url}">{snippet['title']}</a>
-                    ({duration})</p>
-                </body>
-               </html>
-               """
-            message.attach(MIMEText(text, "plain"))
-            message.attach(MIMEText(html, "html"))
-            messages.append(message)
-            found = True
 
-    if found:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"{channel_title} uploaded {'LIVE' if livestream else 'video'}"
+            msg["From"] = config["email"]
+            msg["To"] = config["email"]
+
+            text = f"{v_snippet.get('title')}\n{video_url} ({duration})"
+            msg.attach(MIMEText(text, "plain"))
+
+            new_messages.append(msg)
+
+    if new_messages:
+        logger.info(f"Sending {len(new_messages)} emails")
         with smtplib.SMTP(config["smtp_server"], config["smtp_port"]) as server:
-            server.ehlo()
-            for message in messages:
-                log(f'Sending mail about message: {message}')
-                server.sendmail(config["email"], config["email"], message.as_string())
+            for msg in new_messages:
+                server.sendmail(config["email"], config["email"], msg.as_string())
 
-    pruned = False
-    date_threshold = (datetime.today() - relativedelta(months=NUM_MONTHS_BACKLOG+1)).replace(tzinfo=timezone.utc)
-    for key, item in datastore.copy().items():
-        timestamp = datetime.fromisoformat(item["date"]).replace(tzinfo=timezone.utc)
-        if timestamp < date_threshold:
-            del datastore[key]
-            pruned = True
+    # Prune datastore
+    prune_threshold = datetime.now(timezone.utc) - relativedelta(months=NUM_MONTHS_BACKLOG + 1)
+    datastore = {
+        k: v for k, v in datastore.items()
+        if datetime.fromisoformat(v["date"]) > prune_threshold
+    }
 
-    if found or pruned:
-        if pruned:
-            log("Performing datastore file pruning")
-        with open(config["datastore_file"], "w") as fp:
-            json.dump(datastore, fp, indent=2)
+    with open(config["datastore_file"], "w") as f:
+        json.dump(datastore, f, indent=2)
 
-    global count
-    log(f"I made a total of {count} API calls")
+    logger.info(f"Total API calls made: {API_CALL_COUNT}")
+    logger.info("Done")
 
-
-if __name__ == '__main__':
-    main(sys.argv)
+if __name__ == "__main__":
+    main()

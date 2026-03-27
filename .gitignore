@@ -3,3 +3,5 @@ subscribed.xml
 datastore.json
 *.swp
 creds.dat
+token.json
+__pycache__
