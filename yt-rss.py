@@ -232,7 +232,7 @@ def main():
 
             msg = MIMEMultipart("alternative")
             msg["Subject"] = f"{channel_title} just {'announced' if livestream else 'uploaded'} a {'LIVE' if livestream else 'video'}"
-            msg["From"] = config["email"]
+            msg["From"] = f'YouTube <{config["email"]}>'
             msg["To"] = config["email"]
 
             text = f"{v_snippet.get('title')}\n{video_url} ({duration})"
