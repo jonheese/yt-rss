@@ -221,13 +221,31 @@ def main():
                 "date": published_date.isoformat(),
             }
 
+            image_html = ""
+            thumbnail = v_snippet.get("thumbnails", {}).get("high")
+            if thumbnail is not None and 'url' in thumbnail:
+                image_html = f"""<p><img src="{thumbnail['url']}"
+                width="{thumbnail['width']} height="{thumbnail['height']}"
+                /></p>"""
+            else:
+                image_html = "NO THUMBNAIL"
+
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"{channel_title} uploaded {'LIVE' if livestream else 'video'}"
+            msg["Subject"] = f"{channel_title} just {'announced' if livestream else 'uploaded'} a {'LIVE' if livestream else 'video'}"
             msg["From"] = config["email"]
             msg["To"] = config["email"]
 
             text = f"{v_snippet.get('title')}\n{video_url} ({duration})"
+            html = f"""
+                <html>
+                <body>
+                    <a href="{video_url}">{image_html}</a>
+                    <p><a href="{video_url}">{v_snippet['title']}</a>
+                    ({duration})</p>
+                </body>
+                </html>"""
             msg.attach(MIMEText(text, "plain"))
+            msg.attach(MIMEText(html, "html"))
 
             new_messages.append(msg)
 
