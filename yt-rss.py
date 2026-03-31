@@ -231,7 +231,7 @@ def main():
                 image_html = "NO THUMBNAIL"
 
             msg = MIMEMultipart("alternative")
-            msg["Subject"] = f"{channel_title} just {'announced' if livestream else 'uploaded'} a {'LIVE' if livestream else 'video'}"
+            msg["Subject"] = f"{channel_title} just {'announced' if livestream else 'uploaded'} a {'LIVE STREAM' if livestream else 'video'}"
             msg["From"] = f'YouTube <{config["email"]}>'
             msg["To"] = config["email"]
 
